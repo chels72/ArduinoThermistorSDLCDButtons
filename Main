@@ -1,0 +1,212 @@
+//blue led shows data being written
+//red means error in card init
+//red and blue is error in data writting
+//green blue yellow on at startup
+
+#include <LiquidCrystal.h>
+#include <SPI.h>
+#include <SD.h>
+
+// SD Data, other pins defined in SPI 50 51 52 for mosi miso clk
+const int chipSelect = 10;
+
+//button pins and states (on or off)
+const int b1 = 11;
+const int b2 = 12;
+const int b3 = 13;
+int b1State = 0;
+int b2State = 0;
+int b3State = 0;
+
+//time counter
+float sec = 1.5;
+int min =0 ;
+int hour = 0;
+int day = 0;
+
+LiquidCrystal lcd(4, 6, 30,32,34,36);// Define the connection LCD pin
+
+//temp
+int ThermistorPin = 2; //analog pin
+int Vo;
+float R1 = 10000;
+float logR2, R2, T, Tc, Tf;
+float c1 = 1.009249522e-03, c2 = 2.378405444e-04, c3 = 2.019202697e-07;
+
+
+
+void setup()
+{ 
+  //set up pins for buttons and leds
+  pinMode(b1, INPUT);
+  pinMode(b2, INPUT);
+  pinMode(b3, INPUT);
+  pinMode(8, OUTPUT);  //yellow
+  pinMode(7, OUTPUT);  //blue
+  pinMode(3, OUTPUT);  //green
+  pinMode(2, OUTPUT); //red
+
+  //turn on LEDs
+  digitalWrite(3, HIGH);
+  digitalWrite(8, HIGH);
+  digitalWrite(7, HIGH);
+
+  //setup LCD
+  lcd.begin(16, 2);   //set up the LCD's number of columns and rows: 
+  lcd.clear();         //Clears the LCD screen and positions the cursor in the upper-left corner 
+  delay(500);         //delay 1000ms
+
+  //setup SD
+  lcd.setCursor(0, 0);    // set the cursor to column 0, line 0
+  lcd.print("Initializing SD card..."); 
+    // see if the card is present and can be initialized:
+    if (!SD.begin(chipSelect)) 
+    {
+      lcd.setCursor(0, 1);    // set the cursor to column 0, line 0
+      lcd.print("fail"); 
+      digitalWrite(2, HIGH); //red led
+      digitalWrite(3, LOW); //turn oF LEDs except red
+      digitalWrite(8, LOW);
+      digitalWrite(7, LOW);
+      while (1);// don't do anything more:
+    }
+  lcd.setCursor(0, 1);    // set the cursor to column 0, line 0
+  lcd.print("card initialized."); 
+  delay(1000);         //delay 1000ms
+
+  //set up header for file and write
+  String headerString = "";
+  headerString += "Temp(F)";
+  headerString += ",";
+  headerString += "Day:Hr:Min:Sec";
+  headerString += ",";
+  headerString += "Button 1 State";
+  headerString += ",";
+  headerString += "Button 2 State";
+  headerString += ",";
+  headerString += "Button 3 State";
+  File dataFile = SD.open("datalog.txt", FILE_WRITE);
+    if (dataFile) 
+    {
+      dataFile.println(headerString);
+      dataFile.close();
+      lcd.clear();
+
+    }
+    else // if the file isn't open, pop up an error:
+    {
+      lcd.clear();
+      lcd.setCursor(0, 0);    // set the cursor to column 0, line 0
+      lcd.print("error header file"); 
+      digitalWrite(2, HIGH); //red led
+      digitalWrite(7, HIGH); //blue led
+    }
+
+//end of setup
+  digitalWrite(3, LOW); //turn ofF all LEDs
+  digitalWrite(8, LOW);
+  digitalWrite(7, LOW);
+}
+
+
+
+
+void loop()  //main
+{
+  float TempAvg =0;
+  float Temp=0; //set inital temp value for for loop, resets value at start of each loop
+
+  for (int i=0; i<5; i++) //take 5 temp measurements then average 
+  {
+    Vo = analogRead(ThermistorPin);
+    R2 = R1 * (1023.0 / (float)Vo - 1.0);
+    logR2 = log(R2);
+    T = (1.0 / (c1 + c2*logR2 + c3*logR2*logR2*logR2));
+    Tc = T - 273.15;
+    Tf = ( (Tc * 9.0)/ 5.0 ) + 32.0; 
+    Temp= Temp + Tf; //add onto old value
+    delay (1000);
+  } 
+
+  digitalWrite(7, HIGH); //blue LED
+  TempAvg = Temp /5; //take avg of temps from for loop 
+
+  //read button states
+  b1State = digitalRead(b1);
+  b2State = digitalRead(b2);
+  b3State = digitalRead(b3);
+
+  //set time
+  sec += 5.6; //adds the time it takes for one loop to the time
+      if (sec >= 60) //update times
+      {
+        min += 1;
+        sec = sec - 60;
+      }
+      if (min >= 60)
+      {
+        hour += 1;
+        min = min - 60;
+      }
+      if (hour >= 24)
+      {
+        day += 1;
+        hour = hour - 24;
+      }
+
+  // save data by append to the string, CSV format
+  String dataString = "";
+      dataString += String(TempAvg);
+      dataString += ","; //space in csv
+      dataString += String(day);
+      dataString += ":";
+      dataString += String(hour);
+      dataString += ":";
+      dataString += String(min);
+      dataString += ":";
+      dataString += String(sec);  
+      dataString += ",";  
+      dataString += String(b1State); //button states
+          dataString += ","; //space in csv 
+      dataString += String(b2State); //button states
+          dataString += ","; //space in csv 
+      dataString += String(b3State); //button states
+
+  //actually save the data 
+  File dataFile = SD.open("datalog.txt", FILE_WRITE);// open the file. note that only one file can be open at a time,was
+  // if the file is available, write to it:
+    if (dataFile) 
+    {
+      dataFile.println(dataString);
+      dataFile.close();
+    }
+    else // if the file isn't open, pop up an error:
+    {
+      lcd.clear();
+      lcd.setCursor(0, 0);    // set the cursor to column 0, line 0
+      lcd.print("error opening datalog.txt"); 
+      digitalWrite(2, HIGH); //red led
+    }
+
+  digitalWrite(7, LOW); //blue LED off
+
+  //display data on LCD
+  lcd.clear();
+  lcd.setCursor(0, 0);    // set the cursor to column 0, line 0
+  lcd.print("Temp: ");  
+  lcd.print(TempAvg);
+  lcd.print(" F");
+  lcd.setCursor(0, 1); 
+  lcd.print("State: ");
+  lcd.print(b1State);
+  lcd.print(b2State);
+  lcd.print(b3State);
+  lcd.print(" ");
+  lcd.print(hour);
+  lcd.print(":");
+  lcd.print(min);
+
+  delay(500);
+} //end of void loop
+
+
